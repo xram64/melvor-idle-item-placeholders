@@ -16,7 +16,7 @@ export async function setup(ctx: ItemPlaceholderContext) {
   const { removeEmpty, setupEmpty } = await ctx.loadModule<typeof empty>('empty.mjs');
   const { setupUI } = await ctx.loadModule<typeof ui>('ui.mjs');
   const { setupSettings } = await ctx.loadModule<typeof settings>('settings.mjs');
-  const { isEmpty } = await ctx.loadModule<typeof util>('util.mjs');
+  const { isPlaceholder, isEmpty } = await ctx.loadModule<typeof util>('util.mjs');
 
   await setupEmpty(ctx);
   await setupSettings(ctx);
@@ -222,6 +222,24 @@ export async function setup(ctx: ItemPlaceholderContext) {
       return original(items);
     }
   });
+
+  ctx
+    .patch(Bank, 'addItem')
+    .replace(function (original, item, quantity, logLost, found, ignoreSpace, notify, itemSource) {
+      const bankItem = this.items.get(item);
+      const useSlots = ctx.settings.section('General').get('use-slots');
+      if (!isPlaceholder(bankItem) || useSlots || this.occupiedSlots < this.maximumSlots || ignoreSpace) {
+        // NOTE: This item is a not a placeholder, or this item is a placeholder and the bank has space.
+        return original(item, quantity, logLost, found, ignoreSpace, notify, itemSource);
+      } else {
+        // NOTE: This item is a placeholder and the bank has no free slots left.
+        if (notify) this.game.notifications.createErrorNotification('BankFull', getLangString('TOASTS_FULL_BANK'));
+        if (logLost) {
+          let _b;
+          this.lostItems.set(item, ((_b = this.lostItems.get(item)) !== null && _b !== void 0 ? _b : 0) + quantity);
+        }
+      }
+    });
 
   const runIfValidItem = (onPlaceholderFound: (item: Item) => void) =>
     function <P extends unknown[], T extends (item: Item, ...args: P) => void>(
